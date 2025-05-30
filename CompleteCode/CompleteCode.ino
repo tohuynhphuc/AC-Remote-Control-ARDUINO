@@ -17,13 +17,19 @@ const char* uni_password = "";
 enum WifiType { NONE, HOME, UNI };
 WifiType currentWiFi = NONE;
 
-// Retry timer
+// Timers
 unsigned long lastHomeRetryTime = 0;
 const unsigned long HOME_RETRY_INTERVAL = 60000;
+unsigned long lastMessageTime = 0;
+
+// ---------- Actual Timer ----------
+int timer = 0;
+bool isTimer = false;
+unsigned long timerEndTime = 0;
 
 // ---------- Pins ----------
-const int IR_SEND_PIN = 25;
-const int LED_PIN = 18;
+const int IR_SEND_PIN = 25; // D4
+const int LED_PIN = 18; // BUILT-IN LED
 
 // ---------- WebSocket Settings ----------
 const char* websockets_server_host = "107.175.3.39";
@@ -49,8 +55,42 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
             // Received a signal
             Serial.print("[WSc] Received: ");
             Serial.println((char*)payload);
+            lastMessageTime = millis();
+
+            // Blink LED to signify received signal
+            digitalWrite(LED_PIN, HIGH);
+            delay(50);
+            digitalWrite(LED_PIN, LOW);
+            delay(50);
+            digitalWrite(LED_PIN, HIGH);
 
             String signal = String((char*)payload);
+
+            // Check for timer suffix
+            int lastUnderscore = signal.lastIndexOf('_');
+            if (lastUnderscore != -1 && lastUnderscore < signal.length() - 1) {
+                String possibleNumber = signal.substring(lastUnderscore + 1);
+                bool isNumber = true;
+
+                // Check if the substring is a number
+                for (unsigned int j = 0; j < possibleNumber.length(); j++) {
+                    if (!isDigit(possibleNumber.charAt(j))) {
+                        isNumber = false;
+                        break;
+                    }
+                }
+
+                if (isNumber) {
+                    timer = possibleNumber.toInt();
+                    isTimer = true;
+                    timerEndTime = millis() + (unsigned long)timer * 60000; // convert minutes to ms
+                    signal = signal.substring(0, lastUnderscore);
+                } else {
+                    timer = 0;
+                    isTimer = false;
+                    timerEndTime = 0;
+                }
+            }
 
             // Check if it is a known signal and send it
             for (int i = 0; i < SIGNALS_COUNT; i++) {
@@ -172,6 +212,18 @@ void loginToServer() {
     http.end();
 }
 
+// ---------- Setup WebSocket connection ----------
+void setupWebSocket() {
+    // Setup WebSocket connection
+    client.begin(websockets_server_host, websockets_server_port,
+                 websockets_server_path);
+    // Send cookie in the header
+    client.setExtraHeaders((String("Cookie: ") + sessionCookie).c_str());
+    client.onEvent(webSocketEvent);
+    // Try to reconnect every 5s if disconnected
+    client.setReconnectInterval(5000);
+}
+
 // ---------- Update built-in LED ----------
 void updateLED() {
     if (WiFi.status() == WL_CONNECTED && client.isConnected()) {
@@ -189,15 +241,7 @@ void setup() {
 
     connectToWiFi();
     loginToServer();
-
-    // Setup WebSocket connection
-    client.begin(websockets_server_host, websockets_server_port,
-                 websockets_server_path);
-    // Send cookie in the header
-    client.setExtraHeaders((String("Cookie: ") + sessionCookie).c_str());
-    client.onEvent(webSocketEvent);
-    // Try to reconnect every 5s if disconnected
-    client.setReconnectInterval(5000);
+    setupWebSocket();
 }
 
 // ---------- Arduino Main Loop ----------
@@ -209,6 +253,11 @@ void loop() {
         return;
     }
 
+    //if (!client.isConnected()) {
+    //    Serial.println("WebSocket disconnected. Reconnecting...");
+    //    setupWebSocket();
+    //}
+
     // If currently on Uni WiFi, check if Home is available
     if (currentWiFi == UNI) {
         switchToHomeWiFiIfAvailable();
@@ -216,6 +265,28 @@ void loop() {
 
     // Check for signals frequently
     client.loop();
-
     updateLED();
+
+// Timer countdown check
+if (isTimer && millis() >= timerEndTime) {
+    Serial.println("Timer expired. Sending OFF signal...");
+    
+    // Find and send the OFF signal
+    for (int i = 0; i < SIGNALS_COUNT; i++) {
+        if (savedSignals[i].name == "OFF") {
+            IrSender.sendRaw(savedSignals[i].data, IR_SIGNAL_LENGTH, FREQUENCY);
+            Serial.println("IR Signal Sent: OFF");
+            break;
+        }
+    }
+
+    isTimer = false;
+    timer = 0;
+    timerEndTime = 0;
+}
+
+    // Restart the ESP every 5 minutes
+    if (millis() - lastMessageTime > 300000) { // 5 minutes
+        ESP.restart();
+    }
 }

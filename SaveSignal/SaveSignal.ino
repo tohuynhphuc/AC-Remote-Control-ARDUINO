@@ -17,7 +17,7 @@ void loop() {
 
       Serial.println("\n\nReceived IR signal! Here's the raw array:\n");
 
-      Serial.print("uint16_t rawData[] = {");
+      Serial.print("{");
       for (uint_fast8_t i = 1; i < rawlen; i++) {  // Skip [0] (gap)
         Serial.print((uint16_t)(rawbuf[i] * MICROS_PER_TICK));         // Cast each value
         if (i < rawlen - 1) Serial.print(", ");
