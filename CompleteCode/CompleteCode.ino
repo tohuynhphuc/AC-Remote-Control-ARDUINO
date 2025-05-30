@@ -1,4 +1,5 @@
 #include <HTTPClient.h>
+#include <Preferences.h>
 #include <WebSocketsClient.h>
 #include <WiFi.h>
 
@@ -26,10 +27,11 @@ unsigned long lastMessageTime = 0;
 int timer = 0;
 bool isTimer = false;
 unsigned long timerEndTime = 0;
+Preferences preferences;
 
 // ---------- Pins ----------
-const int IR_SEND_PIN = 25; // D4
-const int LED_PIN = 18; // BUILT-IN LED
+const int IR_SEND_PIN = 25;  // D4
+const int LED_PIN = 18;      // BUILT-IN LED
 
 // ---------- WebSocket Settings ----------
 const char* websockets_server_host = "107.175.3.39";
@@ -83,14 +85,18 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
                 if (isNumber) {
                     timer = possibleNumber.toInt();
                     isTimer = true;
-                    timerEndTime = millis() + (unsigned long)timer * 60000; // convert minutes to ms
+                    timerEndTime = millis() + (unsigned long)timer * 60000;
+                    saveTimerInfo();
                     signal = signal.substring(0, lastUnderscore);
                 } else {
                     timer = 0;
                     isTimer = false;
                     timerEndTime = 0;
+                    saveTimerInfo();
                 }
             }
+
+            Serial.println("Extracted Signal: " + signal);
 
             // Check if it is a known signal and send it
             for (int i = 0; i < SIGNALS_COUNT; i++) {
@@ -233,12 +239,38 @@ void updateLED() {
     }
 }
 
+// ---------- Save/Load Timer Information ----------
+void saveTimerInfo() {
+    preferences.begin("timer", false);
+    preferences.putBool("isTimer", isTimer);
+    preferences.putULong("timerEndTime", timerEndTime);
+    preferences.putInt("timer", timer);
+    preferences.end();
+}
+
+void loadTimerInfo() {
+    preferences.begin("timer", true);  // read-only
+    isTimer = preferences.getBool("isTimer", false);
+    timerEndTime = preferences.getULong("timerEndTime", 0);
+    timer = preferences.getInt("timer", 0);
+    preferences.end();
+
+    if (isTimer) {
+        Serial.println("Loaded timer from storage:");
+        Serial.println("Timer active, ends at: " + String(timerEndTime));
+        Serial.println("Timer duration (minutes): " + String(timer));
+    } else {
+        Serial.println("No active timer loaded.");
+    }
+}
+
 // ---------- Arduino Setup (Run once) ----------
 void setup() {
     Serial.begin(115200);
     IrSender.begin(IR_SEND_PIN);
     pinMode(LED_PIN, OUTPUT);
 
+    loadTimerInfo();
     connectToWiFi();
     loginToServer();
     setupWebSocket();
@@ -253,10 +285,10 @@ void loop() {
         return;
     }
 
-    //if (!client.isConnected()) {
-    //    Serial.println("WebSocket disconnected. Reconnecting...");
-    //    setupWebSocket();
-    //}
+    // if (!client.isConnected()) {
+    //     Serial.println("WebSocket disconnected. Reconnecting...");
+    //     setupWebSocket();
+    // }
 
     // If currently on Uni WiFi, check if Home is available
     if (currentWiFi == UNI) {
@@ -267,26 +299,27 @@ void loop() {
     client.loop();
     updateLED();
 
-// Timer countdown check
-if (isTimer && millis() >= timerEndTime) {
-    Serial.println("Timer expired. Sending OFF signal...");
-    
-    // Find and send the OFF signal
-    for (int i = 0; i < SIGNALS_COUNT; i++) {
-        if (savedSignals[i].name == "OFF") {
-            IrSender.sendRaw(savedSignals[i].data, IR_SIGNAL_LENGTH, FREQUENCY);
-            Serial.println("IR Signal Sent: OFF");
-            break;
+    // Timer countdown check
+    if (isTimer && millis() >= timerEndTime) {
+        Serial.println("Timer expired. Sending OFF signal...");
+
+        // Find and send the OFF signal
+        for (int i = 0; i < SIGNALS_COUNT; i++) {
+            if (savedSignals[i].name == OFF) {
+                IrSender.sendRaw(savedSignals[i].data, IR_SIGNAL_LENGTH,
+                                 FREQUENCY);
+                Serial.println("IR Signal Sent: OFF");
+                break;
+            }
         }
+
+        isTimer = false;
+        timer = 0;
+        timerEndTime = 0;
     }
 
-    isTimer = false;
-    timer = 0;
-    timerEndTime = 0;
-}
-
     // Restart the ESP every 5 minutes
-    if (millis() - lastMessageTime > 300000) { // 5 minutes
+    if (millis() - lastMessageTime > 300000) {  // 5 minutes
         ESP.restart();
     }
 }
