@@ -223,9 +223,11 @@ void setupWebSocket() {
     // Setup WebSocket connection
     client.begin(websockets_server_host, websockets_server_port,
                  websockets_server_path);
+
     // Send cookie in the header
     client.setExtraHeaders((String("Cookie: ") + sessionCookie).c_str());
     client.onEvent(webSocketEvent);
+
     // Try to reconnect every 5s if disconnected
     client.setReconnectInterval(5000);
 }
@@ -284,11 +286,6 @@ void loop() {
         delay(1000);
         return;
     }
-
-    // if (!client.isConnected()) {
-    //     Serial.println("WebSocket disconnected. Reconnecting...");
-    //     setupWebSocket();
-    // }
 
     // If currently on Uni WiFi, check if Home is available
     if (currentWiFi == UNI) {
