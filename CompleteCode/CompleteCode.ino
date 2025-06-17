@@ -2,6 +2,7 @@
 #include <Preferences.h>
 #include <WebSocketsClient.h>
 #include <WiFi.h>
+#include <time.h>
 
 #include <IRremote.hpp>
 
@@ -85,7 +86,12 @@ void webSocketEvent(WStype_t type, uint8_t* payload, size_t length) {
                 if (isNumber) {
                     timer = possibleNumber.toInt();
                     isTimer = true;
-                    timerEndTime = millis() + (unsigned long)timer * 60000;
+                    time_t now;
+                    time(&now);
+                    timerEndTime = now + timer * 60;
+                    Serial.println(
+                        "Timer set for: " + String(timer) +
+                        " mins and will end at: " + String(timerEndTime));
                     saveTimerInfo();
                     signal = signal.substring(0, lastUnderscore);
                 } else {
@@ -258,8 +264,11 @@ void loadTimerInfo() {
     preferences.end();
 
     if (isTimer) {
+        time_t now;
+        time(&now);
         Serial.println("Loaded timer from storage:");
         Serial.println("Timer active, ends at: " + String(timerEndTime));
+        Serial.println("Current time: " + String(now));
         Serial.println("Timer duration (minutes): " + String(timer));
     } else {
         Serial.println("No active timer loaded.");
@@ -272,8 +281,9 @@ void setup() {
     IrSender.begin(IR_SEND_PIN);
     pinMode(LED_PIN, OUTPUT);
 
-    loadTimerInfo();
     connectToWiFi();
+    configTime(7 * 3600, 0, "pool.ntp.org");
+    loadTimerInfo();
     loginToServer();
     setupWebSocket();
 }
@@ -296,8 +306,10 @@ void loop() {
     client.loop();
     updateLED();
 
+    time_t now;
+    time(&now);
     // Timer countdown check
-    if (isTimer && millis() >= timerEndTime) {
+    if (isTimer && now >= timerEndTime) {
         Serial.println("Timer expired. Sending OFF signal...");
 
         // Find and send the OFF signal

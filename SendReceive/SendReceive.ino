@@ -32,16 +32,11 @@ void loop() {
     // If it's time to resend
     if (shouldResend && millis() - lastReceiveTime >= 5000) {
         Serial.println("Resending received IR signal...");
-
-        if (lastReceivedData.protocol == UNKNOWN) {
-            // Send raw data if protocol is unknown
-            IrSender.sendRaw(lastReceivedData.rawDataPtr->rawbuf + 1,
-                             lastReceivedData.rawDataPtr->rawlen - 1, 38);
-        } else {
-            // Send known protocol
-            IrSender.write(&lastReceivedData);
-        }
+        // Send raw data if protocol is unknown
+        IrSender.sendRaw(lastReceivedData.rawDataPtr->rawbuf + 1,
+                         lastReceivedData.rawDataPtr->rawlen - 1, 38);
 
         shouldResend = false;
+        delay(100);
     }
 }
